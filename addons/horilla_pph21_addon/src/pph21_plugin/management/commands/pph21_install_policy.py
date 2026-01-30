@@ -40,9 +40,20 @@ class Command(BaseCommand):
         ptkp_statuses = list(DEFAULT_PPH21_CONFIG.ptkp_map.keys())
 
         for company in targets:
-            for status in ["PPh21"] + [f"PPh21 {s}" for s in ptkp_statuses]:
-                ptkp_status = "TK0" if status == "PPh21" else status.replace("PPh21 ", "", 1)
-                snippet = policy_code_snippet_for(ptkp_status=ptkp_status, has_npwp=True).strip() + "\n"
+            variants: list[tuple[str, str, bool]] = [
+                ("PPh21", "TK0", True),
+                ("PPh21 No NPWP", "TK0", False),
+            ] + [
+                (f"PPh21 {s}", s, True) for s in ptkp_statuses
+            ] + [
+                (f"PPh21 {s} No NPWP", s, False) for s in ptkp_statuses
+            ]
+
+            for status, ptkp_status, has_npwp in variants:
+                snippet = (
+                    policy_code_snippet_for(ptkp_status=ptkp_status, has_npwp=has_npwp).strip()
+                    + "\n"
+                )
 
                 filing = (
                     FilingStatus.objects.filter(company_id=company, filing_status=status).first()
