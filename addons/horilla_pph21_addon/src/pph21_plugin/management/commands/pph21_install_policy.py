@@ -3,7 +3,7 @@ from django.db import transaction
 
 from base.models import Company
 from payroll.models.models import FilingStatus
-from pph21_plugin.indonesia import policy_code_snippet
+from pph21_plugin.indonesia import DEFAULT_PPH21_CONFIG, policy_code_snippet_for
 
 
 class Command(BaseCommand):
@@ -26,8 +26,6 @@ class Command(BaseCommand):
             self.stdout.write("Pilih salah satu: --company-id atau --all-companies")
             return
 
-        snippet = policy_code_snippet().strip() + "\n"
-
         if all_companies:
             targets = list(Company.objects.all())
         elif company_id:
@@ -39,42 +37,48 @@ class Command(BaseCommand):
         skipped = 0
         created = 0
 
+        ptkp_statuses = list(DEFAULT_PPH21_CONFIG.ptkp_map.keys())
+
         for company in targets:
-            filing = (
-                FilingStatus.objects.filter(company_id=company, filing_status="PPh21").first()
-                if company
-                else FilingStatus.objects.filter(company_id__isnull=True, filing_status="PPh21").first()
-            )
-            if filing is None:
-                filing = FilingStatus(
-                    company_id=company,
-                    filing_status="PPh21",
-                    based_on="taxable_gross_pay",
+            for status in ["PPh21"] + [f"PPh21 {s}" for s in ptkp_statuses]:
+                ptkp_status = "TK0" if status == "PPh21" else status.replace("PPh21 ", "", 1)
+                snippet = policy_code_snippet_for(ptkp_status=ptkp_status, has_npwp=True).strip() + "\n"
+
+                filing = (
+                    FilingStatus.objects.filter(company_id=company, filing_status=status).first()
+                    if company
+                    else FilingStatus.objects.filter(company_id__isnull=True, filing_status=status).first()
                 )
+                if filing is None:
+                    filing = FilingStatus(
+                        company_id=company,
+                        filing_status=status,
+                        based_on="taxable_gross_pay",
+                    )
+                    if not dry_run:
+                        filing.save()
+                    created += 1
+
+                current = (filing.python_code or "").strip()
+                next_code = snippet.strip()
+
+                if current and not force and current != next_code:
+                    skipped += 1
+                    self.stdout.write(
+                        f"- SKIP filing status={status} id={getattr(filing,'id',None)} company_id={getattr(company,'id',None)}: sudah ada python_code. Pakai --force untuk overwrite."
+                    )
+                    continue
+
+                filing.use_py = True
+                filing.python_code = snippet
+
                 if not dry_run:
                     filing.save()
-                created += 1
 
-            current = (filing.python_code or "").strip()
-            next_code = snippet.strip()
-
-            if current and not force and current != next_code:
-                skipped += 1
+                updated += 1
                 self.stdout.write(
-                    f"- SKIP filing id={getattr(filing,'id',None)} company_id={getattr(company,'id',None)}: sudah ada python_code. Pakai --force untuk overwrite."
+                    f"- OK filing status={status} id={getattr(filing,'id',None)} company_id={getattr(company,'id',None)} use_py=True"
                 )
-                continue
-
-            filing.use_py = True
-            filing.python_code = snippet
-
-            if not dry_run:
-                filing.save()
-
-            updated += 1
-            self.stdout.write(
-                f"- OK filing id={getattr(filing,'id',None)} company_id={getattr(company,'id',None)} use_py=True"
-            )
 
         self.stdout.write("")
         self.stdout.write(f"Created policy: {created}")
