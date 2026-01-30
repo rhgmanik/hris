@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+shopt -s nullglob
 
 usage() {
   cat <<'USAGE'
@@ -7,6 +8,7 @@ Usage:
   horilla_provision.sh --client <name> --domain <fqdn> --internal-port <port> \
     --db-name <name> --db-user <user> --db-password <pass> --db-host <host> --db-port <port> \
     [--install-dir /opt/horilla] [--horilla-repo https://github.com/horilla-opensource/horilla.git] [--horilla-branch master] \
+    [--time-zone Asia/Jakarta] \
     [--ssl none|letsencrypt] [--letsencrypt-email <email>] \
     [--enable-pph21] [--pph21-wheel /path/to/horilla_pph21_addon-0.1.0-py3-none-any.whl]
 
@@ -33,6 +35,7 @@ INTERNAL_PORT=""
 INSTALL_DIR="/opt/horilla"
 HORILLA_REPO="https://github.com/horilla-opensource/horilla.git"
 HORILLA_BRANCH="master"
+TIME_ZONE="Asia/Jakarta"
 SSL_MODE="none"
 LE_EMAIL=""
 ENABLE_PPH21="false"
@@ -51,6 +54,7 @@ while [[ $# -gt 0 ]]; do
     --install-dir) INSTALL_DIR="${2:-}"; shift 2 ;;
     --horilla-repo) HORILLA_REPO="${2:-}"; shift 2 ;;
     --horilla-branch) HORILLA_BRANCH="${2:-}"; shift 2 ;;
+    --time-zone) TIME_ZONE="${2:-}"; shift 2 ;;
     --ssl) SSL_MODE="${2:-}"; shift 2 ;;
     --letsencrypt-email) LE_EMAIL="${2:-}"; shift 2 ;;
     --enable-pph21) ENABLE_PPH21="true"; shift 1 ;;
@@ -147,30 +151,129 @@ if [[ "$ENABLE_PPH21" == "true" ]]; then
 fi
 
 SECRET_KEY="$("${VENV_DIR}/bin/python" -c "import secrets; print(secrets.token_urlsafe(50))")"
+DB_INIT_PASSWORD="$("${VENV_DIR}/bin/python" -c "import secrets; print(secrets.token_urlsafe(24))")"
 CSRF_ORIGINS="https://${DOMAIN},http://${DOMAIN}"
+SSL_REDIRECT="false"
+HSTS_SECONDS="0"
+if [[ "$SSL_MODE" == "letsencrypt" ]]; then
+  SSL_REDIRECT="true"
+  HSTS_SECONDS="31536000"
+fi
 
 cat > "${ENV_FILE}" <<EOF
 DEBUG=False
-SECRET_KEY=${SECRET_KEY}
-ALLOWED_HOSTS=${DOMAIN}
-CSRF_TRUSTED_ORIGINS=${CSRF_ORIGINS}
+TIME_ZONE="${TIME_ZONE}"
+SECRET_KEY="${SECRET_KEY}"
+ALLOWED_HOSTS="${DOMAIN}"
+CSRF_TRUSTED_ORIGINS="${CSRF_ORIGINS}"
+DB_INIT_PASSWORD="${DB_INIT_PASSWORD}"
+DJANGO_SETTINGS_MODULE="horilla.local_settings"
+SECURE_SSL_REDIRECT="${SSL_REDIRECT}"
+SECURE_HSTS_SECONDS="${HSTS_SECONDS}"
 
 DB_ENGINE=django.db.backends.postgresql
-DB_NAME=${DB_NAME}
-DB_USER=${DB_USER}
-DB_PASSWORD=${DB_PASSWORD}
-DB_HOST=${DB_HOST}
-DB_PORT=${DB_PORT}
+DB_NAME="${DB_NAME}"
+DB_USER="${DB_USER}"
+DB_PASSWORD="${DB_PASSWORD}"
+DB_HOST="${DB_HOST}"
+DB_PORT="${DB_PORT}"
 
-ENABLE_PPH21_PLUGIN=${ENABLE_PPH21}
+ENABLE_PPH21_PLUGIN="${ENABLE_PPH21}"
 EOF
+
+cat > "${BASE_DIR}/manage.sh" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+cd "${APP_DIR}"
+set -a
+source "${ENV_FILE}"
+set +a
+source "${VENV_DIR}/bin/activate"
+exec python manage.py "\$@"
+EOF
+chmod +x "${BASE_DIR}/manage.sh"
 
 cd "${APP_DIR}"
 set +u
 source "${VENV_DIR}/bin/activate"
 set -u
 
-python manage.py check
+export DEBUG="False"
+export SECRET_KEY="${SECRET_KEY}"
+export ALLOWED_HOSTS="${DOMAIN}"
+export CSRF_TRUSTED_ORIGINS="${CSRF_ORIGINS}"
+export DB_INIT_PASSWORD="${DB_INIT_PASSWORD}"
+export DJANGO_SETTINGS_MODULE="horilla.local_settings"
+export SECURE_SSL_REDIRECT="${SSL_REDIRECT}"
+export SECURE_HSTS_SECONDS="${HSTS_SECONDS}"
+export TIME_ZONE="${TIME_ZONE}"
+export DB_ENGINE="django.db.backends.postgresql"
+export DB_NAME="${DB_NAME}"
+export DB_USER="${DB_USER}"
+export DB_PASSWORD="${DB_PASSWORD}"
+export DB_HOST="${DB_HOST}"
+export DB_PORT="${DB_PORT}"
+export ENABLE_PPH21_PLUGIN="${ENABLE_PPH21}"
+
+cat > "${APP_DIR}/horilla/local_settings.py" <<'EOF'
+from horilla.settings import *
+from horilla import horilla_apps
+
+if env("ENABLE_PPH21_PLUGIN", default=False):
+    INSTALLED_APPS.append("pph21_plugin.apps.Pph21PluginConfig")
+
+apps_raw = env("HORILLA_LOCAL_MIGRATION_APPS", default="")
+if apps_raw:
+    items = [a.strip() for a in apps_raw.split(",") if a.strip()]
+    if items:
+        MIGRATION_MODULES = {a: f"local_migrations.{a}" for a in items}
+
+if not DEBUG:
+    SECURE_SSL_REDIRECT = env("SECURE_SSL_REDIRECT", default=True)
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = int(env("SECURE_HSTS_SECONDS", default=31536000))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    USE_X_FORWARDED_HOST = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = "same-origin"
+EOF
+
+apps_need_migrations=()
+for d in "${APP_DIR}"/*; do
+  [[ -d "$d" ]] || continue
+  name="$(basename "$d")"
+  [[ "$name" == "horilla" ]] && continue
+  [[ -f "$d/apps.py" ]] || continue
+  [[ -d "$d/migrations" ]] || continue
+  [[ -f "$d/models.py" || -d "$d/models" ]] || continue
+  has_non_init="false"
+  for f in "$d/migrations"/*.py; do
+    [[ -e "$f" ]] || continue
+    [[ "$(basename "$f")" == "__init__.py" ]] && continue
+    has_non_init="true"
+    break
+  done
+  if [[ "$has_non_init" == "false" ]]; then
+    apps_need_migrations+=("$name")
+  fi
+done
+
+python manage.py check --deploy || python manage.py check
+if [[ "${#apps_need_migrations[@]}" -gt 0 ]]; then
+  horilla_local_migration_apps="$(IFS=,; echo "${apps_need_migrations[*]}")"
+  printf '\nHORILLA_LOCAL_MIGRATION_APPS="%s"\n' "${horilla_local_migration_apps}" >> "${ENV_FILE}"
+  export HORILLA_LOCAL_MIGRATION_APPS="${horilla_local_migration_apps}"
+  mkdir -p "${APP_DIR}/local_migrations"
+  touch "${APP_DIR}/local_migrations/__init__.py"
+  for app_label in "${apps_need_migrations[@]}"; do
+    mkdir -p "${APP_DIR}/local_migrations/${app_label}"
+    touch "${APP_DIR}/local_migrations/${app_label}/__init__.py"
+  done
+  python manage.py makemigrations "${apps_need_migrations[@]}"
+fi
 python manage.py migrate --noinput
 python manage.py compilemessages || true
 python manage.py collectstatic --noinput

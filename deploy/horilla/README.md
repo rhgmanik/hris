@@ -37,7 +37,13 @@ Yang script lakukan:
 - buat venv `/opt/horilla/<client>/venv`
 - install requirements Horilla
 - (opsional) install wheel PPh21
-- generate `.env` instance (DB, ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS, ENABLE_PPH21_PLUGIN)
+- generate `.env` instance (DB, ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS, DB_INIT_PASSWORD, ENABLE_PPH21_PLUGIN)
+- generate helper script `manage.sh` untuk menjalankan `manage.py` dengan env+venv yang benar
+- generate `horilla/local_settings.py` untuk:
+  - load `horilla_apps` sejak awal (INSTALLED_APPS lengkap)
+  - apply hardening production saat DEBUG=False (secure cookies, HSTS, proxy ssl header)
+- auto-generate migrations untuk app lokal yang folder `migrations/` masih kosong (hanya `__init__.py`)
+  - output ditulis ke `local_migrations/<app>/` (bukan ke folder app) supaya tidak mengotori source upstream
 - migrate + collectstatic + compilemessages
 - buat systemd service Gunicorn
 - buat Nginx site config
@@ -48,10 +54,11 @@ Yang script lakukan:
 - Update Horilla:
   - `git pull` di folder `app`
   - `pip install -r requirements.txt` bila berubah
-  - `python manage.py migrate`
+  - jalankan migrasi:
+    - `DJANGO_SETTINGS_MODULE=horilla.local_settings python manage.py migrate`
   - restart service
 - Update addon:
   - `pip install --upgrade <wheel/registry>`
-  - `python manage.py pph21_install_policy --all-companies --force`
+  - apply PPh21:
+    - `DJANGO_SETTINGS_MODULE=horilla.local_settings python manage.py pph21_install_policy --all-companies --force`
   - restart service
-
