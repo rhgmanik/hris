@@ -2,7 +2,6 @@ from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models
 
-from base.horilla_company_manager import HorillaCompanyManager
 from employee.models import Employee
 from pph21_plugin.indonesia import DEFAULT_PPH21_CONFIG
 
@@ -33,10 +32,6 @@ class EmployeeTaxProfile(models.Model):
                 message="NPWP hanya boleh berisi angka, titik, strip, atau spasi.",
             )
         ],
-    )
-
-    objects = HorillaCompanyManager(
-        related_company_field="employee_id__employee_work_info__company_id"
     )
 
     @property

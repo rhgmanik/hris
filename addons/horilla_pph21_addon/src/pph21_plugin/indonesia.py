@@ -72,11 +72,7 @@ def policy_code_snippet_for(*, ptkp_status: str, has_npwp: bool) -> str:
     safe_ptkp = (ptkp_status or "TK0").strip().upper()
     safe_has_npwp = "True" if bool(has_npwp) else "False"
     return (
-        "from pph21_plugin.indonesia import calculate_pph21 as plugin_calculate_pph21\n"
-        "\n"
-        f"PTKP_STATUS = {safe_ptkp!r}\n"
-        f"HAS_NPWP = {safe_has_npwp}\n"
-        "\n"
         "def calculate_federal_tax(yearly_income):\n"
-        "    return plugin_calculate_pph21(yearly_income=yearly_income, ptkp_status=PTKP_STATUS, has_npwp=HAS_NPWP)\n"
+        "    from pph21_plugin.indonesia import calculate_pph21 as plugin_calculate_pph21\n"
+        f"    return plugin_calculate_pph21(yearly_income=yearly_income, ptkp_status={safe_ptkp!r}, has_npwp={safe_has_npwp})\n"
     )
