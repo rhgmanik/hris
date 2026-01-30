@@ -159,7 +159,7 @@ if [[ "$SSL_MODE" == "letsencrypt" || "$SSL_MODE" == "cloudflare" ]]; then
   SSL_REDIRECT="true"
   HSTS_SECONDS="31536000"
 fi
-NGINX_X_FORWARDED_PROTO="\\$scheme"
+NGINX_X_FORWARDED_PROTO='\$scheme'
 if [[ "$SSL_MODE" == "cloudflare" ]]; then
   NGINX_X_FORWARDED_PROTO="https"
 fi
