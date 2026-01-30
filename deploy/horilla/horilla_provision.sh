@@ -139,6 +139,17 @@ else
   git clone --branch "${HORILLA_BRANCH}" "${HORILLA_REPO}" "${APP_DIR}"
 fi
 
+if [[ "$ENABLE_PPH21" == "true" ]]; then
+  payroll_tab="${APP_DIR}/employee/templates/tabs/payroll-tab.html"
+  if [[ -f "${payroll_tab}" ]] && ! grep -q "pph21_tax_profile_card" "${payroll_tab}"; then
+    sed -i "/<\\/style>/a\\
+{% if \\\"pph21_plugin\\\"|app_installed %}\\
+{% load pph21_tags %}\\
+{% pph21_tax_profile_card employee %}\\
+{% endif %}" "${payroll_tab}"
+  fi
+fi
+
 if [[ ! -d "${VENV_DIR}" ]]; then
   python3 -m venv "${VENV_DIR}"
 fi
