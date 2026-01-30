@@ -9,7 +9,7 @@ Usage:
     --db-name <name> --db-user <user> --db-password <pass> --db-host <host> --db-port <port> \
     [--install-dir /opt/horilla] [--horilla-repo https://github.com/horilla-opensource/horilla.git] [--horilla-branch master] \
     [--time-zone Asia/Jakarta] \
-    [--ssl none|letsencrypt] [--letsencrypt-email <email>] \
+    [--ssl none|letsencrypt|cloudflare] [--letsencrypt-email <email>] \
     [--enable-pph21] [--pph21-wheel /path/to/horilla_pph21_addon-0.1.0-py3-none-any.whl]
 
 Notes:
@@ -74,8 +74,8 @@ if [[ -z "$CLIENT" || -z "$DOMAIN" || -z "$INTERNAL_PORT" || -z "$DB_NAME" || -z
   exit 1
 fi
 
-if [[ "$SSL_MODE" != "none" && "$SSL_MODE" != "letsencrypt" ]]; then
-  echo "--ssl harus none atau letsencrypt"
+if [[ "$SSL_MODE" != "none" && "$SSL_MODE" != "letsencrypt" && "$SSL_MODE" != "cloudflare" ]]; then
+  echo "--ssl harus none, letsencrypt, atau cloudflare"
   exit 1
 fi
 
@@ -155,9 +155,13 @@ DB_INIT_PASSWORD="$("${VENV_DIR}/bin/python" -c "import secrets; print(secrets.t
 CSRF_ORIGINS="https://${DOMAIN},http://${DOMAIN}"
 SSL_REDIRECT="false"
 HSTS_SECONDS="0"
-if [[ "$SSL_MODE" == "letsencrypt" ]]; then
+if [[ "$SSL_MODE" == "letsencrypt" || "$SSL_MODE" == "cloudflare" ]]; then
   SSL_REDIRECT="true"
   HSTS_SECONDS="31536000"
+fi
+NGINX_X_FORWARDED_PROTO="\\$scheme"
+if [[ "$SSL_MODE" == "cloudflare" ]]; then
+  NGINX_X_FORWARDED_PROTO="https"
 fi
 
 cat > "${ENV_FILE}" <<EOF
@@ -305,6 +309,11 @@ server {
 
   client_max_body_size 50m;
 
+  real_ip_header CF-Connecting-IP;
+  set_real_ip_from 127.0.0.1;
+  set_real_ip_from ::1;
+  real_ip_recursive on;
+
   location /static/ {
     alias ${APP_DIR}/staticfiles/;
   }
@@ -317,7 +326,7 @@ server {
     proxy_set_header Host \$host;
     proxy_set_header X-Real-IP \$remote_addr;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_set_header X-Forwarded-Proto ${NGINX_X_FORWARDED_PROTO};
     proxy_pass http://127.0.0.1:${INTERNAL_PORT};
   }
 }

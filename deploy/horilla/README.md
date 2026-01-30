@@ -49,6 +49,37 @@ Yang script lakukan:
 - buat Nginx site config
 - (opsional) request SSL Let's Encrypt via certbot
 
+## 2.1) Catatan Cloudflare Tunnel
+
+Jika domain kamu dipublish lewat **Cloudflare Tunnel** (mis. `hr.tahok.my.id`) dan origin tidak membuka port 80/443 publik, gunakan:
+
+- `--ssl cloudflare` (tanpa certbot/Let's Encrypt)
+
+Alasannya:
+
+- TLS sudah terminasi di Cloudflare edge, origin menerima HTTP dari `cloudflared`.
+- Django tetap perlu tahu request itu “secure” supaya cookie secure dan redirect bekerja benar.
+
+Contoh:
+
+```bash
+sudo bash deploy/horilla_provision.sh \
+  --client hr \
+  --domain hr.tahok.my.id \
+  --internal-port 8001 \
+  --ssl cloudflare \
+  --db-name horilla_hr \
+  --db-user horilla \
+  --db-password 'CHANGE_ME' \
+  --db-host 127.0.0.1 \
+  --db-port 5432
+```
+
+Konfigurasi Tunnel (di host cloudflared):
+
+- Public hostname: `hr.tahok.my.id`
+- Service: `http://localhost` (atau `http://127.0.0.1:80`)
+
 ## 3) Update SOP
 
 - Update Horilla:
