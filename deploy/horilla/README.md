@@ -42,8 +42,7 @@ Yang script lakukan:
 - generate `horilla/local_settings.py` untuk:
   - load `horilla_apps` sejak awal (INSTALLED_APPS lengkap)
   - apply hardening production saat DEBUG=False (secure cookies, HSTS, proxy ssl header)
-- auto-generate migrations untuk app lokal yang folder `migrations/` masih kosong (hanya `__init__.py`)
-  - output ditulis ke `local_migrations/<app>/` (bukan ke folder app) supaya tidak mengotori source upstream
+- auto-generate migrations untuk app yang belum punya migration (via `python manage.py makemigrations`)
 - migrate + collectstatic + compilemessages
 - buat systemd service Gunicorn
 - buat Nginx site config

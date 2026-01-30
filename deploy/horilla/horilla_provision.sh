@@ -226,12 +226,6 @@ from horilla import horilla_apps
 if env("ENABLE_PPH21_PLUGIN", default=False):
     INSTALLED_APPS.append("pph21_plugin.apps.Pph21PluginConfig")
 
-apps_raw = env("HORILLA_LOCAL_MIGRATION_APPS", default="")
-if apps_raw:
-    items = [a.strip() for a in apps_raw.split(",") if a.strip()]
-    if items:
-        MIGRATION_MODULES = {a: f"local_migrations.{a}" for a in items}
-
 if not DEBUG:
     SECURE_SSL_REDIRECT = env("SECURE_SSL_REDIRECT", default=True)
     SESSION_COOKIE_SECURE = True
@@ -246,66 +240,8 @@ if not DEBUG:
     SECURE_REFERRER_POLICY = "same-origin"
 EOF
 
-apps_need_migrations=()
-export HORILLA_APP_DIR="${APP_DIR}"
-apps_need_migrations_raw="$("${VENV_DIR}/bin/python" - <<'PY'
-import os
-from pathlib import Path
-
-import django
-from django.apps import apps
-
-django.setup()
-
-app_dir = Path(os.environ["HORILLA_APP_DIR"]).resolve()
-prefix = str(app_dir) + os.sep
-
-labels = []
-for cfg in apps.get_app_configs():
-    try:
-        path = Path(cfg.path).resolve()
-    except Exception:
-        continue
-    if not str(path).startswith(prefix):
-        continue
-
-    migrations_dir = path / "migrations"
-    if not migrations_dir.is_dir():
-        continue
-
-    has_models = (path / "models.py").is_file() or (path / "models").is_dir()
-    if not has_models:
-        continue
-
-    py_files = [p for p in migrations_dir.glob("*.py") if p.name != "__init__.py"]
-    if py_files:
-        continue
-
-    labels.append(cfg.label)
-
-for label in sorted(set(labels)):
-    print(label)
-PY
-)"
-
-while IFS= read -r app_label; do
-  [[ -n "${app_label}" ]] || continue
-  apps_need_migrations+=("${app_label}")
-done <<< "${apps_need_migrations_raw}"
-
 python manage.py check --deploy || python manage.py check
-if [[ "${#apps_need_migrations[@]}" -gt 0 ]]; then
-  horilla_local_migration_apps="$(IFS=,; echo "${apps_need_migrations[*]}")"
-  printf '\nHORILLA_LOCAL_MIGRATION_APPS="%s"\n' "${horilla_local_migration_apps}" >> "${ENV_FILE}"
-  export HORILLA_LOCAL_MIGRATION_APPS="${horilla_local_migration_apps}"
-  mkdir -p "${APP_DIR}/local_migrations"
-  touch "${APP_DIR}/local_migrations/__init__.py"
-  for app_label in "${apps_need_migrations[@]}"; do
-    mkdir -p "${APP_DIR}/local_migrations/${app_label}"
-    touch "${APP_DIR}/local_migrations/${app_label}/__init__.py"
-  done
-  python manage.py makemigrations "${apps_need_migrations[@]}"
-fi
+python manage.py makemigrations
 python manage.py migrate --noinput
 python manage.py compilemessages || true
 python manage.py collectstatic --noinput
