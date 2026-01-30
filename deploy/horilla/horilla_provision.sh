@@ -159,7 +159,7 @@ if [[ "$SSL_MODE" == "letsencrypt" || "$SSL_MODE" == "cloudflare" ]]; then
   SSL_REDIRECT="true"
   HSTS_SECONDS="31536000"
 fi
-NGINX_X_FORWARDED_PROTO='\$scheme'
+NGINX_X_FORWARDED_PROTO='$scheme'
 if [[ "$SSL_MODE" == "cloudflare" ]]; then
   NGINX_X_FORWARDED_PROTO="https"
 fi
@@ -241,29 +241,57 @@ if not DEBUG:
     SECURE_HSTS_PRELOAD = True
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     USE_X_FORWARDED_HOST = True
+    X_FRAME_OPTIONS = "DENY"
     SECURE_CONTENT_TYPE_NOSNIFF = True
     SECURE_REFERRER_POLICY = "same-origin"
 EOF
 
 apps_need_migrations=()
-for d in "${APP_DIR}"/*; do
-  [[ -d "$d" ]] || continue
-  name="$(basename "$d")"
-  [[ "$name" == "horilla" ]] && continue
-  [[ -f "$d/apps.py" ]] || continue
-  [[ -d "$d/migrations" ]] || continue
-  [[ -f "$d/models.py" || -d "$d/models" ]] || continue
-  has_non_init="false"
-  for f in "$d/migrations"/*.py; do
-    [[ -e "$f" ]] || continue
-    [[ "$(basename "$f")" == "__init__.py" ]] && continue
-    has_non_init="true"
-    break
-  done
-  if [[ "$has_non_init" == "false" ]]; then
-    apps_need_migrations+=("$name")
-  fi
-done
+export HORILLA_APP_DIR="${APP_DIR}"
+apps_need_migrations_raw="$("${VENV_DIR}/bin/python" - <<'PY'
+import os
+from pathlib import Path
+
+import django
+from django.apps import apps
+
+django.setup()
+
+app_dir = Path(os.environ["HORILLA_APP_DIR"]).resolve()
+prefix = str(app_dir) + os.sep
+
+labels = []
+for cfg in apps.get_app_configs():
+    try:
+        path = Path(cfg.path).resolve()
+    except Exception:
+        continue
+    if not str(path).startswith(prefix):
+        continue
+
+    migrations_dir = path / "migrations"
+    if not migrations_dir.is_dir():
+        continue
+
+    has_models = (path / "models.py").is_file() or (path / "models").is_dir()
+    if not has_models:
+        continue
+
+    py_files = [p for p in migrations_dir.glob("*.py") if p.name != "__init__.py"]
+    if py_files:
+        continue
+
+    labels.append(cfg.label)
+
+for label in sorted(set(labels)):
+    print(label)
+PY
+)"
+
+while IFS= read -r app_label; do
+  [[ -n "${app_label}" ]] || continue
+  apps_need_migrations+=("${app_label}")
+done <<< "${apps_need_migrations_raw}"
 
 python manage.py check --deploy || python manage.py check
 if [[ "${#apps_need_migrations[@]}" -gt 0 ]]; then
