@@ -1,0 +1,41 @@
+name: release-horilla-pph21-addon
+
+on:
+  push:
+    tags:
+      - "horilla-pph21-addon-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: addons/horilla_pph21_addon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build wheel & sdist
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "build>=1.2.1"
+          python -m build
+
+      - name: Smoke import
+        run: |
+          python -m pip install dist/*.whl
+          python -c "from pph21_plugin.indonesia import calculate_pph21; print(calculate_pph21(yearly_income=100_000_000, ptkp_status='TK0', has_npwp=True))"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            addons/horilla_pph21_addon/dist/*.whl
+            addons/horilla_pph21_addon/dist/*.tar.gz
+

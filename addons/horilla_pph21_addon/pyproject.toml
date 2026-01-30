@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "horilla-pph21-addon"
+version = "0.1.0"
+description = "PPh21 addon plugin for Horilla (Indonesia payroll)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["Django>=4.1"]
+
+[project.optional-dependencies]
+dev = ["build>=1.2.1", "twine>=5.1.1"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
