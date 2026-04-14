@@ -1,4 +1,4 @@
-# HRIS Ops Repository
+# Horilla HRIS Ops Repository
 
 Repository ini dipakai untuk menyimpan addon dan artefak operasional untuk deployment Horilla pada banyak klien.
 
